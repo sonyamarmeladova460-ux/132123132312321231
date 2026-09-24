@@ -1,0 +1,42 @@
+local inicfg = require('inicfg');
+local IniFilename = 'Flooder.ini';
+local ini = inicfg.load({
+    Flooder = {
+        Delay = 1000
+    }
+}, IniFilename);
+
+local flood = false
+
+function main()
+    while not isSampAvailable() do wait(0) end
+    sampRegisterChatCommand('ftime', function(arg)
+        newDelay = tonumber(arg);
+
+        if not newDelay then
+            return
+        end
+
+        if newDelay <= 0 then
+            return
+        end
+        
+        ini.Flooder.Delay = newDelay
+        inicfg.save(ini, IniFilename);
+        sampAddChatMessage('Установлена задержка: {69d1d1}' .. newDelay, 0xdddddd)
+    end);
+
+    sampRegisterChatCommand('flood', function(arg)
+        flood = not flood
+        text = arg
+        sampAddChatMessage('Флудер ' .. (flood and '{4eec49}включен' or '{ec4949}выключен'), 0xdddddd)
+    end);
+
+    while true do
+        wait(0)
+        if flood then
+            sampSendChat(text, -1)
+            wait(ini.Flooder.Delay)
+        end
+    end
+end
