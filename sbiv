@@ -1,0 +1,29 @@
+function main()
+    -- Ожидание загрузки SAMP с небольшой задержкой для снижения нагрузки на процессор при старте
+    while not isSampAvailable() do 
+        wait(200) 
+    end
+
+    -- Кешируем часто используемые указатели вне цикла, чтобы не запрашивать их каждый кадр
+    local ped = PLAYER_PED
+    local handle = PLAYER_HANDLE
+    local wasFrozen = false
+
+    while true do
+        wait(0)
+
+        -- 0x52 — шестнадцатеричный код клавиши 'R' (82 в десятичной)
+        if isKeyDown(0x52) and not sampIsCursorActive() and not isCharInAnyCar(ped) then
+            setPlayerControl(handle, true)
+            freezeCharPosition(ped, true)
+            clearCharTasksImmediately(ped)
+            wasFrozen = true
+        else
+            -- Вызываем разморозку ТОЛЬКО один раз при отпускании клавиши, а не спамим ей каждый кадр
+            if wasFrozen then
+                freezeCharPosition(ped, false)
+                wasFrozen = false
+            end
+        end
+    end
+end
