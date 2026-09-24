@@ -1,0 +1,29 @@
+local sampev = require 'lib.samp.events'
+
+-- Таблица блокируемых оружий (O(1) поиск)
+local blockedWeapons = {
+    [1]  = true, -- Brass Knuckles
+    [2]  = true, -- Golf Club
+    [3]  = true, -- Nightstick
+    [4]  = true, -- Knife
+    [5]  = true, -- Baseball Bat
+    [6]  = true, -- Shovel
+    [7]  = true, -- Pool Cue
+    [8]  = true, -- Katana
+    [9]  = true, -- Chainsaw
+    [15] = true  -- Cane
+}
+
+function sampev.onGivePlayerWeapon(weaponId)
+    if blockedWeapons[weaponId] then
+        return false
+    end
+end
+
+function main()
+    while not isSampAvailable() do
+        wait(0)
+    end
+    
+    wait(-1)
+end
