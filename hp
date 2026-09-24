@@ -1,0 +1,42 @@
+-- Локализация глобальных функций для максимальной производительности
+local renderCreateFont = renderCreateFont
+local renderFontDrawText = renderFontDrawText
+local getCharHealth = getCharHealth
+local PLAYER_PED = PLAYER_PED
+local isSampAvailable = isSampAvailable
+local wait = wait
+local tostring = tostring
+
+local hpFont = renderCreateFont('Inter 28pt ExtraBold', 12, 13)
+local x = 2287
+local last_hp = -1
+local hp_str = "0" -- Кэшированная строка здоровья
+
+function main()
+    while not isSampAvailable() do 
+        wait(100) 
+    end
+
+    while true do
+        wait(0)
+        
+        local hp = getCharHealth(PLAYER_PED)
+        if hp < 0 then hp = 0 end
+        
+        -- Выполняем тяжелые операции только при изменении здоровья
+        if hp ~= last_hp then
+            last_hp = hp
+            hp_str = tostring(hp) -- Конвертируем в строку 1 раз при изменении
+            
+            if hp >= 100 then
+                x = 2287
+            elseif hp >= 10 then
+                x = 2292
+            else
+                x = 2297
+            end
+        end
+
+        renderFontDrawText(hpFont, hp_str, x, 216, 0xFFFFFFFF)
+    end
+end
