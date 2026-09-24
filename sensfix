@@ -1,0 +1,484 @@
+script_name('SensFix')
+script_author('ChatGPT')
+script_version('2.0')
+
+require 'lib.moonloader'
+
+local imgui = require('mimgui')
+local memory = require('memory')
+local inicfg = require('inicfg')
+
+local CONFIG = 'sensfix.ini'
+
+local SENS_X = 0xB6EC1C
+local SENS_Y = 0xB6EC18
+
+local originalX = nil
+local originalY = nil
+
+local settings = nil
+
+local window = imgui.new.bool(false)
+local enabled = imgui.new.bool(true)
+
+local normal = imgui.new.float(0.003)
+local aiming = imgui.new.float(0.0015)
+
+local lastSens = nil
+local restored = false
+
+-- SAVE SETTINGS
+
+local function saveSettings()
+    if not settings then return end
+
+    settings.main.enabled = enabled[0]
+    settings.main.normal = normal[0]
+    settings.main.aiming = aiming[0]
+
+    inicfg.save(settings, CONFIG)
+end
+
+-- MOUSE SENSITIVITY
+
+local function setSensitivity(value)
+    memory.setfloat(SENS_X, value, false)
+    memory.setfloat(SENS_Y, value, false)
+end
+
+local function restoreSensitivity()
+    if originalX and originalY then
+        memory.setfloat(SENS_X, originalX, false)
+        memory.setfloat(SENS_Y, originalY, false)
+    end
+end
+
+local function isAiming()
+    if not doesCharExist(PLAYER_PED) then
+        return false
+    end
+
+    local ptr = getCharPointer(PLAYER_PED)
+
+    return memory.getint8(
+        ptr + 0x528,
+        false
+    ) == 19
+end
+
+-- CUSTOM DARK THEME
+
+imgui.OnInitialize(function()
+
+    imgui.GetIO().IniFilename = nil
+
+    local style = imgui.GetStyle()
+    local colors = style.Colors
+
+    local ImVec2 = imgui.ImVec2
+    local ImVec4 = imgui.ImVec4
+
+    -- ROUNDING
+
+    style.WindowRounding = 8.0
+    style.FrameRounding = 5.0
+    style.PopupRounding = 5.0
+    style.ScrollbarRounding = 5.0
+    style.GrabRounding = 4.0
+    style.TabRounding = 5.0
+
+    -- SPACING
+
+    style.WindowPadding = ImVec2(12, 12)
+    style.FramePadding = ImVec2(8, 5)
+    style.ItemSpacing = ImVec2(8, 6)
+
+    -- TEXT
+
+    colors[imgui.Col.Text] =
+        ImVec4(0.92, 0.93, 0.94, 1.00)
+
+    colors[imgui.Col.TextDisabled] =
+        ImVec4(0.50, 0.53, 0.55, 1.00)
+
+    -- BACKGROUND
+
+    colors[imgui.Col.WindowBg] =
+        ImVec4(0.11, 0.12, 0.14, 0.98)
+
+    colors[imgui.Col.ChildBg] =
+        ImVec4(0.14, 0.15, 0.18, 1.00)
+
+    colors[imgui.Col.PopupBg] =
+        ImVec4(0.13, 0.14, 0.17, 0.98)
+
+    -- BORDERS
+
+    colors[imgui.Col.Border] =
+        ImVec4(0.22, 0.24, 0.28, 0.60)
+
+    colors[imgui.Col.BorderShadow] =
+        ImVec4(0.00, 0.00, 0.00, 0.00)
+
+    -- FRAMES
+
+    colors[imgui.Col.FrameBg] =
+        ImVec4(0.16, 0.18, 0.22, 1.00)
+
+    colors[imgui.Col.FrameBgHovered] =
+        ImVec4(0.22, 0.25, 0.30, 1.00)
+
+    colors[imgui.Col.FrameBgActive] =
+        ImVec4(0.26, 0.30, 0.36, 1.00)
+
+    -- TITLE
+
+    colors[imgui.Col.TitleBg] =
+        ImVec4(0.09, 0.10, 0.12, 1.00)
+
+    colors[imgui.Col.TitleBgActive] =
+        ImVec4(0.12, 0.14, 0.17, 1.00)
+
+    colors[imgui.Col.TitleBgCollapsed] =
+        ImVec4(0.09, 0.10, 0.12, 0.75)
+
+    colors[imgui.Col.MenuBarBg] =
+        ImVec4(0.14, 0.15, 0.18, 1.00)
+
+    -- SCROLLBAR
+
+    colors[imgui.Col.ScrollbarBg] =
+        ImVec4(0.11, 0.12, 0.14, 0.60)
+
+    colors[imgui.Col.ScrollbarGrab] =
+        ImVec4(0.24, 0.27, 0.33, 1.00)
+
+    colors[imgui.Col.ScrollbarGrabHovered] =
+        ImVec4(0.30, 0.34, 0.42, 1.00)
+
+    colors[imgui.Col.ScrollbarGrabActive] =
+        ImVec4(0.38, 0.42, 0.52, 1.00)
+
+    -- BLUE ACCENTS
+
+    colors[imgui.Col.CheckMark] =
+        ImVec4(0.40, 0.65, 1.00, 1.00)
+
+    colors[imgui.Col.SliderGrab] =
+        ImVec4(0.40, 0.65, 1.00, 1.00)
+
+    colors[imgui.Col.SliderGrabActive] =
+        ImVec4(0.50, 0.75, 1.00, 1.00)
+
+    -- BUTTONS
+
+    colors[imgui.Col.Button] =
+        ImVec4(0.18, 0.21, 0.27, 1.00)
+
+    colors[imgui.Col.ButtonHovered] =
+        ImVec4(0.25, 0.30, 0.38, 1.00)
+
+    colors[imgui.Col.ButtonActive] =
+        ImVec4(0.32, 0.38, 0.48, 1.00)
+
+    -- HEADERS
+
+    colors[imgui.Col.Header] =
+        ImVec4(0.20, 0.24, 0.30, 1.00)
+
+    colors[imgui.Col.HeaderHovered] =
+        ImVec4(0.28, 0.33, 0.42, 1.00)
+
+    colors[imgui.Col.HeaderActive] =
+        ImVec4(0.35, 0.41, 0.52, 1.00)
+
+    -- SEPARATORS
+
+    colors[imgui.Col.Separator] =
+        ImVec4(0.22, 0.24, 0.28, 1.00)
+
+    colors[imgui.Col.SeparatorHovered] =
+        ImVec4(0.35, 0.41, 0.52, 1.00)
+
+    colors[imgui.Col.SeparatorActive] =
+        ImVec4(0.45, 0.53, 0.68, 1.00)
+
+    -- RESIZE GRIP
+
+    colors[imgui.Col.ResizeGrip] =
+        ImVec4(0.20, 0.24, 0.30, 0.50)
+
+    colors[imgui.Col.ResizeGripHovered] =
+        ImVec4(0.35, 0.41, 0.52, 0.75)
+
+    colors[imgui.Col.ResizeGripActive] =
+        ImVec4(0.45, 0.53, 0.68, 0.90)
+
+end)
+
+-- IMGUI WINDOW
+
+local frame = imgui.OnFrame(function()
+
+    return window[0]
+
+end, function()
+
+    local resX, resY = getScreenResolution()
+
+    imgui.SetNextWindowPos(
+        imgui.ImVec2(resX / 2, resY / 2),
+        imgui.Cond.FirstUseEver,
+        imgui.ImVec2(0.5, 0.5)
+    )
+
+    imgui.SetNextWindowSize(
+        imgui.ImVec2(480, 290),
+        imgui.Cond.FirstUseEver
+    )
+
+    local flags =
+        imgui.WindowFlags.NoResize +
+        imgui.WindowFlags.NoCollapse
+
+    if imgui.Begin(
+        'SensFix | Settings',
+        window,
+        flags
+    ) then
+
+        -- ENABLE
+
+        if imgui.Checkbox(
+            'Enable SensFix',
+            enabled
+        ) then
+            saveSettings()
+        end
+
+        imgui.Spacing()
+        imgui.Separator()
+        imgui.Spacing()
+
+        -- NORMAL SENS
+
+        imgui.Text('Normal sensitivity')
+
+        imgui.PushItemWidth(-1)
+
+        if imgui.SliderFloat(
+            '##normal',
+            normal,
+            0.00001,
+            0.05,
+            '%.6f'
+        ) then
+            saveSettings()
+        end
+
+        imgui.PopItemWidth()
+
+        imgui.Spacing()
+
+        -- AIM SENS
+
+        imgui.Text('Aiming sensitivity')
+
+        imgui.PushItemWidth(-1)
+
+        if imgui.SliderFloat(
+            '##aim',
+            aiming,
+            0.00001,
+            0.05,
+            '%.6f'
+        ) then
+            saveSettings()
+        end
+
+        imgui.PopItemWidth()
+
+        imgui.Spacing()
+        imgui.Separator()
+        imgui.Spacing()
+
+        -- SAVE BUTTON
+
+        if imgui.Button(
+            'Save settings',
+            imgui.ImVec2(-1, 0)
+        ) then
+
+            saveSettings()
+
+            sampAddChatMessage(
+                '[SensFix] Settings saved!',
+                0x55FF55
+            )
+
+        end
+
+        imgui.Spacing()
+
+        -- CLOSE BUTTON
+
+        if imgui.Button(
+            'Close',
+            imgui.ImVec2(-1, 0)
+        ) then
+
+            window[0] = false
+
+        end
+
+        -- WATERMARK
+
+        local watermark = 'SensFix | v2.0'
+
+        local textSize = imgui.CalcTextSize(
+            watermark
+        )
+
+        local winSize = imgui.GetWindowSize()
+        local style = imgui.GetStyle()
+
+        imgui.SetCursorPos(
+            imgui.ImVec2(
+                winSize.x
+                    - textSize.x
+                    - style.WindowPadding.x,
+                winSize.y
+                    - textSize.y
+                    - style.WindowPadding.y
+            )
+        )
+
+        imgui.TextDisabled(watermark)
+
+    end
+
+    imgui.End()
+
+end)
+
+frame.LockPlayer = true
+frame.HideCursor = false
+
+-- MAIN
+
+function main()
+
+    while not isSampAvailable() do
+        wait(100)
+    end
+
+    originalX = memory.getfloat(
+        SENS_X, false
+    )
+
+    originalY = memory.getfloat(
+        SENS_Y, false
+    )
+
+    local base = originalX
+
+    if base < 0.00001 or base > 0.05 then
+        base = 0.003
+    end
+
+    settings = inicfg.load({
+        main = {
+            enabled = true,
+            normal = base,
+            aiming = base * 0.5
+        }
+    }, CONFIG)
+
+    enabled[0] =
+        settings.main.enabled ~= false
+
+    normal[0] = math.max(
+        0.00001,
+        math.min(
+            0.05,
+            tonumber(settings.main.normal) or base
+        )
+    )
+
+    aiming[0] = math.max(
+        0.00001,
+        math.min(
+            0.05,
+            tonumber(settings.main.aiming) or base * 0.5
+        )
+    )
+
+    saveSettings()
+
+    sampRegisterChatCommand('sensfix', function()
+
+        window[0] = not window[0]
+
+    end)
+
+    sampAddChatMessage(
+        '[SensFix] Open menu: /sensfix',
+        0x55FF55
+    )
+
+    while true do
+
+        wait(0)
+
+        if not enabled[0] then
+
+            if not restored then
+                restoreSensitivity()
+                restored = true
+            end
+
+            lastSens = nil
+
+        elseif not window[0]
+            and not isPauseMenuActive()
+            and not sampIsCursorActive()
+            and doesCharExist(PLAYER_PED) then
+
+            restored = false
+
+            local value = normal[0]
+
+            if isAiming() then
+                value = aiming[0]
+            end
+
+            if value ~= lastSens then
+
+                setSensitivity(value)
+
+                lastSens = value
+
+            end
+
+        else
+
+            lastSens = nil
+
+        end
+
+    end
+
+end
+
+-- SCRIPT TERMINATION
+
+function onScriptTerminate(script, quitGame)
+
+    if script == thisScript() then
+
+        saveSettings()
+        restoreSensitivity()
+
+    end
+
+end
