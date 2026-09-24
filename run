@@ -1,0 +1,1 @@
+function main() writeMemory(0xB7CEE4, 1, 1, true) end
