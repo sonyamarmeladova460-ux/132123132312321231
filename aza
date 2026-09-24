@@ -1,0 +1,123 @@
+require 'lib.moonloader'
+local inicfg = require('inicfg')
+
+-- Локализация глобальных функций для ускорения работы в цикле
+local getCurrentCharWeapon = getCurrentCharWeapon
+local getAmmoInCharWeapon = getAmmoInCharWeapon
+local sampSendChat = sampSendChat
+local isSampAvailable = isSampAvailable
+local sampRegisterChatCommand = sampRegisterChatCommand
+local sampAddChatMessage = sampAddChatMessage
+local wait = wait
+
+local IniFilename = 'Aza.ini'
+local ini = inicfg.load({
+    Aza = {
+        Enabled = true,
+        Deagle = true,
+        ifDeagle = 7,
+        makeDeagle = 10,
+        M4 = true,
+        ifM4 = 50,
+        makeM4 = 50
+    }
+}, IniFilename)
+inicfg.save(ini, IniFilename)
+
+-- Кэшируем таблицу конфигурации
+local cfg = ini.Aza
+local sentDeagle = false
+local sentM4 = false
+
+function main()
+    while not isSampAvailable() do wait(100) end
+    sampRegisterChatCommand('aza', cmdAza)
+
+    while true do
+        wait(0)
+        if cfg.Enabled then
+            local weapon = getCurrentCharWeapon(playerPed)
+
+            -- Проверяем оружие поочередно, исключая лишние вызовы API
+            if weapon == 24 and cfg.Deagle then
+                local ammo = getAmmoInCharWeapon(playerPed, 24)
+                if ammo <= cfg.ifDeagle and not sentDeagle then
+                    sampSendChat('/de ' .. cfg.makeDeagle)
+                    sentDeagle = true
+                elseif ammo > cfg.ifDeagle then
+                    sentDeagle = false
+                end
+            elseif weapon == 31 and cfg.M4 then
+                local ammo = getAmmoInCharWeapon(playerPed, 31)
+                if ammo <= cfg.ifM4 and not sentM4 then
+                    sampSendChat('/m4 ' .. cfg.makeM4)
+                    sentM4 = true
+                elseif ammo > cfg.ifM4 then
+                    sentM4 = false
+                end
+            end
+
+            -- Сброс флагов при смене оружия
+            if weapon ~= 24 then sentDeagle = false end
+            if weapon ~= 31 then sentM4 = false end
+        end
+    end
+end
+
+function cmdAza(arg)
+    local args = {}
+    for w in arg:gmatch('%S+') do table.insert(args, w) end
+
+    if #args == 0 then
+        cfg.Enabled = not cfg.Enabled
+        inicfg.save(ini, IniFilename)
+        sampAddChatMessage('{dddddd}Авто пополнение патронов ' .. (cfg.Enabled and '{4eec49}включено' or '{ec4949}выключено'), 0xDDDDDD)
+        return
+    end
+
+    if args[1] == 'de' and #args == 1 then
+        cfg.Deagle = not cfg.Deagle
+        inicfg.save(ini, IniFilename)
+        sampAddChatMessage('{dddddd}Авто пополнение патронов у {69d1d1}Deagle ' .. (cfg.Deagle and '{4eec49}включено' or '{ec4949}выключено'), 0xDDDDDD)
+        return
+    end
+
+    if args[1] == 'de' and #args == 3 then
+        local ifD, makeD = tonumber(args[2]), tonumber(args[3])
+        if ifD and makeD then
+            cfg.ifDeagle = ifD
+            cfg.makeDeagle = makeD
+            inicfg.save(ini, IniFilename)
+            sampAddChatMessage(
+                string.format('{dddddd}Для {69d1d1}Deagle {dddddd}установлено: когда остается{69d1d1} %d {dddddd}патронов, пополняется{69d1d1} %d', ifD, makeD),
+                -1
+            )
+        else
+            sampAddChatMessage('{dddddd}Используй: {69d1d1}/aza de (число) (число)', -1)
+        end
+        return
+    end
+
+    if args[1] == 'm4' and #args == 1 then
+        cfg.M4 = not cfg.M4
+        inicfg.save(ini, IniFilename)
+        sampAddChatMessage('{dddddd}Авто пополнение патронов у {69d1d1}M4 ' .. (cfg.M4 and '{4eec49}включено' or '{ec4949}выключено'), 0xDDDDDD)
+        return
+    end
+
+    if args[1] == 'm4' and #args == 3 then
+        local ifD, makeD = tonumber(args[2]), tonumber(args[3])
+        if ifD and makeD then
+            cfg.ifM4 = ifD
+            cfg.makeM4 = makeD
+            inicfg.save(ini, IniFilename)
+            sampAddChatMessage(
+                string.format('{dddddd}Для {69d1d1}M4 {dddddd}установлено: когда остается{69d1d1} %d {dddddd}патронов, пополняется{69d1d1} %d', ifD, makeD),
+                -1
+            )
+        else
+            sampAddChatMessage('{dddddd}Используй: {69d1d1}/aza m4 (число) (число)', -1)
+        end
+        return
+    end
+end
