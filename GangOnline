@@ -1,0 +1,83 @@
+require "lib.moonloader"
+
+-- Локализация часто вызываемых функций для ускорения доступа
+local sampIsPlayerConnected = sampIsPlayerConnected
+local sampGetPlayerColor = sampGetPlayerColor
+local sampGetPlayerScore = sampGetPlayerScore
+local renderFontDrawText = renderFontDrawText
+local bit_band = require("bit").band
+
+local clist = {
+    0xAA009F00,
+    0xFF2A9170,
+    0xFFB313E7,
+    0xFFFFDE24,
+    0xC801FCFF
+}
+
+local names = {
+    "Grove",
+    "Rifa",
+    "Ballas",
+    "Vagos",
+    "Aztecas"
+}
+
+-- Таблицы быстрого поиска и предвычисленных значений
+local colorToGang = {}
+local renderColors = {}
+local textCache = {}
+local counts = {0, 0, 0, 0, 0}
+
+for i = 1, #clist do
+    colorToGang[clist[i]] = i
+    renderColors[i] = 0xFF000000 + bit_band(clist[i], 0xFFFFFF)
+    textCache[i] = string.format("%s: 0 [0]", names[i])
+end
+
+local posX, posY = 20, 400
+local lineHeight = 14
+
+-- Поток обновления (выполняется раз в 3 секунды)
+local function updater()
+    while true do
+        for i = 1, 5 do
+            counts[i] = 0
+        end
+
+        -- Один проход по игрокам (1005 итераций вместо 5025)
+        for id = 0, 1004 do
+            if sampIsPlayerConnected(id) then
+                local gangIdx = colorToGang[sampGetPlayerColor(id)]
+                if gangIdx and sampGetPlayerScore(id) >= 3 then
+                    counts[gangIdx] = counts[gangIdx] + 1
+                end
+            end
+        end
+
+        -- Формирование строк только при обновлении данных
+        for i = 1, 5 do
+            local online = counts[i]
+            textCache[i] = string.format("%s: %d [%d]", names[i], online, online * 3)
+        end
+
+        wait(3000)
+    end
+end
+
+function main()
+    while not isSampAvailable() do wait(0) end
+
+    local font = renderCreateFont("Arial", 9, 4)
+    lua_thread.create(updater)
+
+    while true do
+        wait(0)
+
+        local y = posY
+        for i = 1, 5 do
+            renderFontDrawText(font, textCache[i], posX, y, renderColors[i])
+            y = y + lineHeight
+        end
+    end
+end
