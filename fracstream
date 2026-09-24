@@ -1,0 +1,411 @@
+local imgui = require 'imgui'
+local encoding = require 'encoding'
+encoding.default = 'CP1251'
+local u8 = encoding.UTF8
+local inicfg = require 'inicfg'
+local bit = require 'bit'
+
+math.randomseed(os.time())
+
+local act = imgui.ImBool(false)
+
+-- Глобальные переменные для кэширования
+local skin_lookup = {}
+local a_counts = {}
+local p_count = 0
+local last_update_time = 0
+
+local function rgba_to_argb(clr)
+	local a = bit.lshift(clr, 24)
+	return bit.bor(bit.rshift(clr, 8), a)
+end
+
+local function updateConfig(file, old_font)
+    local file = file or inicfg.load(nil, 'moonloader/fracstream.ini')
+    -- Защита от пустого ини-файла
+    if not file then file = { main = { fname = 'Arial', fsize = 9, fflag = 5, enable = false, X = 500, Y = 500 } } end
+
+    local ifontname = imgui.ImBuffer(file.main.fname, 0x100)
+    local ifontsize = imgui.ImInt(file.main.fsize)
+    local ifontflag = imgui.ImInt(file.main.fflag)
+    local ienable = imgui.ImBool(file.main.enable)
+    local iconfig = {}
+
+    -- Исправление утечки памяти (удаляем старый шрифт перед созданием нового)
+    if old_font then renderReleaseFont(old_font) end
+    local font = renderCreateFont(file.main.fname, file.main.fsize, file.main.fflag)
+
+    skin_lookup = {} -- Очищаем кэш скинов
+
+    for i, k in pairs(file) do
+		if i ~= 'main' then
+            iconfig[i] = { name = imgui.ImBuffer(i, 0x100) }
+            for l, m in pairs(k) do 
+                if l ~= 'color' then 
+                    iconfig[i][l] = imgui.ImInt(m) 
+                    -- Строим O(1) таблицу поиска скинов
+                    skin_lookup[tonumber(m)] = i
+                end 
+            end
+			iconfig[i].color = imgui.ImColor(tonumber(k.color:reverse(), 16)):GetVec4()
+		end
+    end
+    return file, ifontname, ifontsize, ifontflag, ienable, iconfig, font
+end
+
+local file, ifontname, ifontsize, ifontflag, ienable, iconfig, font = updateConfig()
+
+local x, y = getScreenResolution()
+local activation = function() act.v = not act.v end
+
+local function apply_custom_style()
+	imgui.SwitchContext()
+	local style = imgui.GetStyle()
+	local colors = style.Colors
+	local clr = imgui.Col
+	local ImVec4 = imgui.ImVec4
+
+	style.WindowRounding = 2.0
+	style.WindowTitleAlign = imgui.ImVec2(0.5, 0.84)
+	style.ChildWindowRounding = 2.0
+	style.FrameRounding = 2.0
+	style.ItemSpacing = imgui.ImVec2(5.0, 4.0)
+	style.ScrollbarSize = 13.0
+	style.ScrollbarRounding = 0
+	style.GrabMinSize = 8.0
+	style.GrabRounding = 1.0
+
+	colors[clr.FrameBg]                = ImVec4(0.16, 0.29, 0.48, 0.54)
+	colors[clr.FrameBgHovered]         = ImVec4(0.26, 0.59, 0.98, 0.40)
+	colors[clr.FrameBgActive]          = ImVec4(0.26, 0.59, 0.98, 0.67)
+	colors[clr.TitleBg]                = ImVec4(0.04, 0.04, 0.04, 1.00)
+	colors[clr.TitleBgActive]          = ImVec4(0.16, 0.29, 0.48, 1.00)
+	colors[clr.TitleBgCollapsed]       = ImVec4(0.00, 0.00, 0.00, 0.51)
+	colors[clr.CheckMark]              = ImVec4(0.26, 0.59, 0.98, 1.00)
+	colors[clr.SliderGrab]             = ImVec4(0.24, 0.52, 0.88, 1.00)
+	colors[clr.SliderGrabActive]       = ImVec4(0.26, 0.59, 0.98, 1.00)
+	colors[clr.Button]                 = ImVec4(0.26, 0.59, 0.98, 0.40)
+	colors[clr.ButtonHovered]          = ImVec4(0.26, 0.59, 0.98, 1.00)
+	colors[clr.ButtonActive]           = ImVec4(0.06, 0.53, 0.98, 1.00)
+	colors[clr.Header]                 = ImVec4(0.26, 0.59, 0.98, 0.31)
+	colors[clr.HeaderHovered]          = ImVec4(0.26, 0.59, 0.98, 0.80)
+	colors[clr.HeaderActive]           = ImVec4(0.26, 0.59, 0.98, 1.00)
+	colors[clr.Separator]              = colors[clr.Border]
+	colors[clr.SeparatorHovered]       = ImVec4(0.26, 0.59, 0.98, 0.78)
+	colors[clr.SeparatorActive]        = ImVec4(0.26, 0.59, 0.98, 1.00)
+	colors[clr.ResizeGrip]             = ImVec4(0.26, 0.59, 0.98, 0.25)
+	colors[clr.ResizeGripHovered]      = ImVec4(0.26, 0.59, 0.98, 0.67)
+	colors[clr.ResizeGripActive]       = ImVec4(0.26, 0.59, 0.98, 0.95)
+	colors[clr.TextSelectedBg]         = ImVec4(0.26, 0.59, 0.98, 0.35)
+	colors[clr.Text]                   = ImVec4(1.00, 1.00, 1.00, 1.00)
+	colors[clr.TextDisabled]           = ImVec4(0.50, 0.50, 0.50, 1.00)
+	colors[clr.WindowBg]               = ImVec4(0.06, 0.06, 0.06, 0.94)
+	colors[clr.ChildWindowBg]          = ImVec4(1.00, 1.00, 1.00, 0.00)
+	colors[clr.PopupBg]                = ImVec4(0.08, 0.08, 0.08, 0.94)
+	colors[clr.ComboBg]                = colors[clr.PopupBg]
+	colors[clr.Border]                 = ImVec4(0.43, 0.43, 0.50, 0.50)
+	colors[clr.BorderShadow]           = ImVec4(0.00, 0.00, 0.00, 0.00)
+	colors[clr.MenuBarBg]              = ImVec4(0.14, 0.14, 0.14, 1.00)
+	colors[clr.ScrollbarBg]            = ImVec4(0.02, 0.02, 0.02, 0.53)
+	colors[clr.ScrollbarGrab]          = ImVec4(0.31, 0.31, 0.31, 1.00)
+	colors[clr.ScrollbarGrabHovered]   = ImVec4(0.41, 0.41, 0.41, 1.00)
+	colors[clr.ScrollbarGrabActive]    = ImVec4(0.51, 0.51, 0.51, 1.00)
+	colors[clr.CloseButton]            = ImVec4(0.41, 0.41, 0.41, 0.50)
+	colors[clr.CloseButtonHovered]     = ImVec4(0.98, 0.39, 0.36, 1.00)
+	colors[clr.CloseButtonActive]      = ImVec4(0.98, 0.39, 0.36, 1.00)
+	colors[clr.PlotLines]              = ImVec4(0.61, 0.61, 0.61, 1.00)
+	colors[clr.PlotLinesHovered]       = ImVec4(1.00, 0.43, 0.35, 1.00)
+	colors[clr.PlotHistogram]          = ImVec4(0.90, 0.70, 0.00, 1.00)
+	colors[clr.PlotHistogramHovered]   = ImVec4(1.00, 0.60, 0.00, 1.00)
+	colors[clr.ModalWindowDarkening]   = ImVec4(0.80, 0.80, 0.80, 0.35)
+end
+
+local function join_argb(a, r, g, b)
+	local argb = b  -- b
+	argb = bit.bor(argb, bit.lshift(g, 8))  -- g
+	argb = bit.bor(argb, bit.lshift(r, 16)) -- r
+	argb = bit.bor(argb, bit.lshift(a, 24)) -- a
+	return argb
+end
+
+function main()
+	if not isSampLoaded() or not isSampfuncsLoaded() then return end
+	while not isSampAvailable() do wait(0) end
+
+	sampRegisterChatCommand('fracstream', activation)
+	sampRegisterChatCommand('fz', activation)
+
+    -- Кэширование глобальных функций локально ускоряет их вызов
+    local _sampGetCharHandleBySampPlayerId = sampGetCharHandleBySampPlayerId
+    local _doesCharExist = doesCharExist
+    local _getCharModel = getCharModel
+    local _renderFontDrawText = renderFontDrawText
+
+    while true do 
+        wait(0)
+        imgui.Process = act.v
+        if ienable.v then
+            local rx = file.main.X
+            local ry = file.main.Y
+
+            if cursor then
+                imgui.Process = false
+                sampToggleCursor(true)
+                rx, ry = getCursorPos()
+                if wasKeyPressed(0x1) then
+                    cursor = false
+                    sampToggleCursor(false)
+                    file.main.X, file.main.Y = rx, ry
+                    imgui.Process = true
+                end
+            end
+
+            -- Вычисляем математику и игроков только раз в 500 миллисекунд (снижение нагрузки в 60+ раз)
+            local current_time = os.clock()
+            if current_time - last_update_time > 0.5 then
+                last_update_time = current_time
+                p_count = 0
+                for i, k in pairs(iconfig) do a_counts[i] = 0 end
+
+                -- Получаем максимальный ID на сервере, чтобы не перебирать пустые до 1000
+                local max_id = sampGetMaxPlayerId(true)
+                local ped = playerPed
+                
+                for i = 0, max_id do
+                    local res, char = _sampGetCharHandleBySampPlayerId(i)
+                    if res and _doesCharExist(char) and char ~= ped then
+                        p_count = p_count + 1
+                        local skin = _getCharModel(char)
+                        
+                        -- O(1) поиск через предварительно собранную таблицу
+                        local frac = skin_lookup[skin]
+                        if frac and a_counts[frac] then
+                            a_counts[frac] = a_counts[frac] + 1
+                        end
+                    end
+                end
+            end
+
+            -- Отрисовка происходит каждый кадр, но использует уже подсчитанные данные
+            _renderFontDrawText(font, 'Players: '..p_count, rx, ry, -1)
+            local cur_y = ry + file.main.fsize + ( file.main.fsize / 2 )
+
+            for frac_name, count in pairs(a_counts) do
+                if count > 0 then 
+                    _renderFontDrawText(font, frac_name..': '..count, rx, cur_y, 0xFF000000 + tonumber(file[frac_name].color, 16))
+                    cur_y = cur_y + file.main.fsize + ( file.main.fsize / 2 )
+                end
+            end
+        end
+	end
+end
+
+apply_custom_style()
+
+function imgui.OnDrawFrame()
+    imgui.SetNextWindowPos(imgui.ImVec2(x / 2, y / 2), imgui.Cond.FirstUseEver, imgui.ImVec2(0.5, 0.5))
+    imgui.SetNextWindowSize(imgui.ImVec2(600, 300), imgui.Cond.FirstUseEver)
+    imgui.Begin('FracStream by imring', act)
+    imgui.BeginChild(1, imgui.ImVec2(imgui.GetWindowWidth()/5, 0), true)
+    
+    if imgui.Selectable(u8('Настройки')) then st = 'main' end
+    imgui.Separator()
+    for i, k in pairs(iconfig) do
+        if imgui.Selectable(u8(i)) then st = i end
+    end
+    
+    if imgui.Selectable(u8('Создать...')) then
+        local a = math.random(1, 1000)
+        while file['Random '..a] do a = math.random(1, 1000) end
+        file['Random '..a] = { color = 'FFFFFF' }
+        file, ifontname, ifontsize, ifontflag, ienable, iconfig, font = updateConfig(file, font) -- Передаем старый шрифт
+    end
+    imgui.EndChild()
+    imgui.SameLine()
+    imgui.BeginChild(2, imgui.ImVec2(0, 0), false)
+    
+    if st == 'main' then
+        if imgui.Checkbox(u8('Показать игроков'), ienable) then file.main.enable = ienable.v end
+        if imgui.Button(u8('Изменить позицию')) then cursor = true end
+        if imgui.Button(u8('Перезагрузить конфиг')) then file, ifontname, ifontsize, ifontflag, ienable, iconfig, font = updateConfig(nil, font) end
+        imgui.InputText(u8('Название шрифта'), ifontname)
+        imgui.InputInt(u8('Размер шрифта'), ifontsize)
+        imgui.InputInt(u8('Флаг шрифта'), ifontflag)
+        if imgui.Button(u8('Применить шрифт')) then
+            ienable.v = false
+            file.main.fname = u8:decode(ifontname.v)
+            file.main.fsize = u8:decode(ifontsize.v)
+            file.main.fflag = u8:decode(ifontflag.v)
+            renderReleaseFont(font)
+            font = renderCreateFont(file.main.fname, file.main.fsize, file.main.fflag)
+            ienable.v = true
+        end
+    elseif st then
+        imgui.InputText(u8('Название'), iconfig[st].name)
+        if imgui.ColorEdit3(u8('Цвет'), iconfig[st].color) then
+			local clr = join_argb(0, iconfig[st].color.x * 255, iconfig[st].color.y * 255, iconfig[st].color.z * 255)
+			file[st].color = ('%X'):format(clr)
+        end
+        imgui.Separator()
+        for i, m in pairs(iconfig[st]) do
+            if i ~= 'color' and i ~= 'name' then
+                if imgui.InputInt('##'..i, m, 0) then
+                    file[st][i] = m.v
+                end
+                imgui.SameLine()
+                if imgui.Button(u8('Удалить##'..i)) then
+                    file[st][i] = nil
+                    file, ifontname, ifontsize, ifontflag, ienable, iconfig, font = updateConfig(file, font)
+                end
+            end
+        end
+        if imgui.Button(u8('Добавить')) then
+            file[st][#file[st] + 1] = 0
+            file, ifontname, ifontsize, ifontflag, ienable, iconfig, font = updateConfig(file, font)
+        end
+        imgui.Separator()
+        if imgui.Button(u8('Применить настройки')) then
+            local name = u8:decode(iconfig[st].name.v)
+            if name ~= 'main' and name ~= st then
+                file[name] = {}
+                for i, k in pairs(file[st]) do file[name][i] = k end
+                file[st] = nil
+                st = name
+            end
+            file, ifontname, ifontsize, ifontflag, ienable, iconfig, font = updateConfig(file, font)
+        end
+        imgui.SameLine()
+        if imgui.Button(u8('Удалить')) then
+            file[st] = nil
+            st = nil
+            file, ifontname, ifontsize, ifontflag, ienable, iconfig, font = updateConfig(file, font)
+        end
+    end
+    imgui.EndChild()
+    imgui.End()
+end
+
+function onScriptTerminate(scr)
+	if scr == script.this then
+		inicfg.save(file, 'moonloader/fracstream.ini')
+	end
+end
+
+
+[Ballas]
+1=21
+2=102
+3=103
+4=104
+5=195
+color=C515FF
+[Aztecas]
+1=44
+2=48
+3=114
+4=115
+5=116
+6=292
+7=41
+8=190
+color=DEDFF
+[Bikers]
+1=100
+2=246
+3=247
+4=248
+5=254
+6=181
+7=198
+8=131
+9=64
+color=9D0606
+[RM]
+1=111
+2=112
+3=125
+4=126
+5=214
+6=216
+7=272
+color=B3B3B3
+[PD]
+1=280
+2=265
+3=266
+4=267
+5=281
+6=288
+7=284
+8=285
+9=304
+10=305
+11=283
+12=303
+13=306
+14=307
+15=309
+color=0000cc
+[Army]
+1=191
+2=252
+3=287
+4=140
+color=46A253
+[main]
+enable=true
+X=20
+fflag=4
+Y=500
+fname=arial
+fsize=9
+[Grove]
+1=86
+2=105
+3=106
+4=107
+5=149
+6=269
+7=270
+8=271
+9=297
+10=56
+color=9A400
+[Rifa]
+1=119
+2=173
+3=174
+4=175
+5=226
+color=2EA07B
+[Vagos]
+1=47
+2=108
+3=109
+4=110
+5=41
+6=190
+color=FFDE24
+[LCN]
+1=91
+2=113
+3=124
+4=223
+color=F4B800
+[Yakuza]
+1=117
+2=118
+3=120
+4=123
+5=169
+6=186
+color=FF0606
+[FBI]
+1=163
+2=164
+3=165
+4=166
+5=286
+color=1A
+[Random 875]
+color=FFFFFF
